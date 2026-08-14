@@ -33,7 +33,7 @@ jobs:
           URL="${{ vars.PAGES_URL }}"
           PREV=""
           if [ -n "$URL" ]; then
-            PREV=$(curl -sf "${URL%/}/results.json" | python3 -c "import sys,json;print(json.load(sys.stdin).get('cheapest',{}).get('price',''))" 2>/dev/null || true)
+            PREV=$(curl -sf "${URL%/}/results.json" | python3 -c "import sys,json;print((json.load(sys.stdin).get('overall_cheapest') or {}).get('price',''))" 2>/dev/null || true)
           fi
           echo "prev_best=$PREV" >> "$GITHUB_OUTPUT"
 
