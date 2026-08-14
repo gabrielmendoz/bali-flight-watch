@@ -226,6 +226,23 @@ def render_dashboard(out):
     else:
         hero = '<div class="price">—</div><div class="when">No fares returned this run.</div>'
 
+    # Plain-string (not f-string) so JS braces don't clash with the template.
+    refresh_script = (
+        "<script>\n"
+        "const TRIGGER_URL=" + json.dumps(TRIGGER_URL) + ";\n"
+        "async function doRefresh(){\n"
+        "  const b=document.getElementById('refreshBtn'),t=document.getElementById('refreshTxt');\n"
+        "  b.disabled=true;t.textContent='Starting a fresh check…';\n"
+        "  try{\n"
+        "    const r=await fetch(TRIGGER_URL,{method:'POST'});\n"
+        "    const j=await r.json().catch(()=>({}));\n"
+        "    t.textContent=(j&&j.message)?j.message:'Refresh started — new prices in ~1 min.';\n"
+        "    setTimeout(()=>location.reload(),75000);\n"
+        "  }catch(e){t.textContent='Could not start — try again in a moment.';b.disabled=false;}\n"
+        "}\n"
+        "</script>"
+    )
+
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bali Flight Watch</title>
@@ -245,9 +262,10 @@ background:linear-gradient(180deg,#0d0d0f,#000)}}
 padding:13px 22px;border-radius:999px;font-size:15px}}
 .cta:hover{{opacity:.85}}
 .refresh{{display:inline-flex;align-items:center;gap:8px;margin-bottom:34px;
-border:1px solid #2a2a2c;color:#fff;text-decoration:none;font-weight:600;
-padding:10px 18px;border-radius:999px;font-size:14px;background:#0d0d0f}}
+border:1px solid #2a2a2c;color:#fff;text-decoration:none;font-weight:600;font-family:inherit;
+padding:10px 18px;border-radius:999px;font-size:14px;background:#0d0d0f;cursor:pointer}}
 .refresh:hover{{background:#161618;border-color:#3a3a3c}}
+.refresh:disabled{{opacity:.6;cursor:default}}
 .refresh .dot{{width:7px;height:7px;border-radius:50%;background:#00e0a4;
 box-shadow:0 0 8px #00e0a4}}
 .gtitle{{font-size:13px;text-transform:uppercase;letter-spacing:.2em;color:#8a8a8f;font-weight:600;margin-bottom:18px}}
@@ -267,13 +285,14 @@ box-shadow:0 0 8px #00e0a4}}
 <div class="eyebrow">Bali Flight Watch</div>
 <h1>Stockholm → Bali</h1>
 <div class="route">One-way · {out["window"]} · scanned twice daily</div>
-<a class="refresh" href="{TRIGGER_URL}" target="_blank" rel="noopener">
-<span class="dot"></span>Refresh now — run a fresh check</a>
+<button class="refresh" id="refreshBtn" onclick="doRefresh()">
+<span class="dot"></span><span id="refreshTxt">Refresh now — run a fresh check</span></button>
 <div class="hero"><div class="hlabel">Cheapest right now</div>{hero}</div>
 <div class="gtitle">Every departure day in the window</div>
 {''.join(bars)}
 <div class="foot"><b>Route</b> {out["route"]} &nbsp;·&nbsp; <b>Updated</b> {out["scanned_at"]}<br>
 Live Google Flights fares via Apify. Tap any day to open that date on Google Flights.</div>
+{refresh_script}
 </body></html>"""
     path = os.path.join(HERE, "dashboard.html")
     with open(path, "w") as f:

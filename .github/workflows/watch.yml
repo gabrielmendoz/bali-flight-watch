@@ -43,6 +43,7 @@ jobs:
           FONNTE_TOKEN: ${{ secrets.FONNTE_TOKEN }}
           OWNER_WHATSAPP: ${{ secrets.OWNER_WHATSAPP }}
           PREV_BEST: ${{ steps.prev.outputs.prev_best }}
+          TRIGGER_URL: ${{ vars.TRIGGER_URL }}
         run: python3 scan.py
 
       - name: Assemble site
