@@ -33,6 +33,11 @@ MAX_CHARGE  = "0.05"               # per-run USD cost ceiling
 HERE        = os.path.dirname(os.path.abspath(__file__))
 RESULTS     = os.path.join(HERE, "results.json")
 STATE       = os.path.join(HERE, "state.json")   # remembers last best price for delta
+# Manual "refresh now" target. Override with env TRIGGER_URL to point at a
+# one-click proxy; defaults to the GitHub Actions run-workflow page.
+TRIGGER_URL = os.environ.get(
+    "TRIGGER_URL",
+    "https://github.com/gabrielmendoz/bali-flight-watch/actions/workflows/watch.yml")
 
 APIFY_TOKEN    = os.environ.get("APIFY_TOKEN", "")
 FONNTE_TOKEN   = os.environ.get("FONNTE_TOKEN", "")
@@ -239,6 +244,12 @@ background:linear-gradient(180deg,#0d0d0f,#000)}}
 .cta{{display:inline-block;background:#fff;color:#000;text-decoration:none;font-weight:700;
 padding:13px 22px;border-radius:999px;font-size:15px}}
 .cta:hover{{opacity:.85}}
+.refresh{{display:inline-flex;align-items:center;gap:8px;margin-bottom:34px;
+border:1px solid #2a2a2c;color:#fff;text-decoration:none;font-weight:600;
+padding:10px 18px;border-radius:999px;font-size:14px;background:#0d0d0f}}
+.refresh:hover{{background:#161618;border-color:#3a3a3c}}
+.refresh .dot{{width:7px;height:7px;border-radius:50%;background:#00e0a4;
+box-shadow:0 0 8px #00e0a4}}
 .gtitle{{font-size:13px;text-transform:uppercase;letter-spacing:.2em;color:#8a8a8f;font-weight:600;margin-bottom:18px}}
 .row{{display:flex;align-items:center;gap:16px;text-decoration:none;color:#fff;padding:7px 0}}
 .row:hover .track{{background:#161618}}
@@ -256,6 +267,8 @@ padding:13px 22px;border-radius:999px;font-size:15px}}
 <div class="eyebrow">Bali Flight Watch</div>
 <h1>Stockholm → Bali</h1>
 <div class="route">One-way · {out["window"]} · scanned twice daily</div>
+<a class="refresh" href="{TRIGGER_URL}" target="_blank" rel="noopener">
+<span class="dot"></span>Refresh now — run a fresh check</a>
 <div class="hero"><div class="hlabel">Cheapest right now</div>{hero}</div>
 <div class="gtitle">Every departure day in the window</div>
 {''.join(bars)}
