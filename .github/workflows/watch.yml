@@ -1,0 +1,59 @@
+name: Bali Flight Watch
+
+on:
+  schedule:
+    - cron: "0 6,18 * * *"   # 06:00 & 18:00 UTC = 08:00 & 20:00 Sweden (CEST)
+  workflow_dispatch:          # manual "Run workflow" button
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: flight-watch
+  cancel-in-progress: false
+
+jobs:
+  scan-and-publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read previous best price from the live site
+        id: prev
+        run: |
+          URL="${{ vars.PAGES_URL }}"
+          PREV=""
+          if [ -n "$URL" ]; then
+            PREV=$(curl -sf "${URL%/}/results.json" | python3 -c "import sys,json;print(json.load(sys.stdin).get('cheapest',{}).get('price',''))" 2>/dev/null || true)
+          fi
+          echo "prev_best=$PREV" >> "$GITHUB_OUTPUT"
+
+      - name: Run fare sweep + WhatsApp
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          FONNTE_TOKEN: ${{ secrets.FONNTE_TOKEN }}
+          OWNER_WHATSAPP: ${{ secrets.OWNER_WHATSAPP }}
+          PREV_BEST: ${{ steps.prev.outputs.prev_best }}
+        run: python3 scan.py
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp dashboard.html _site/index.html
+          cp results.json _site/results.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
