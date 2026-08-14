@@ -26,6 +26,7 @@ ADULTS       = 1
 CURRENCY     = "USD"
 MAX_FLIGHTS  = 25                   # pull enough that 1-stop options survive the filter
 MAX_STOPS    = 1                    # only clean itineraries (<=1 connection)
+MAX_DURATION_MIN = 30 * 60          # skip trips longer than 30 hours (long layovers)
 ACTOR        = "makework36~flight-price-scraper"
 RUN_MEM      = 512
 CONCURRENCY  = 4
@@ -130,9 +131,12 @@ def cheapest_from(items):
             continue
         bp = x.get("bestPrice")
         st = x.get("stops")
+        dm = x.get("durationMinutes")
         if not isinstance(bp, (int, float)):
             continue
         if isinstance(st, int) and st > MAX_STOPS:
+            continue
+        if isinstance(dm, (int, float)) and dm > MAX_DURATION_MIN:  # skip 30h+ trips
             continue
         cands.append(x)
     if not cands:
