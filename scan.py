@@ -24,6 +24,7 @@ VIEWS = [
     {"code": "ARN", "name": "Stockholm",              "flag": "🇸🇪", "carrier": None,   "overall": True},
     {"code": "CPH", "name": "Copenhagen",             "flag": "🇩🇰", "carrier": None,   "overall": True},
     {"code": "ARN", "name": "Stockholm · Thai Airways","flag": "🇸🇪", "carrier": "thai", "overall": False},
+    {"code": "ARN", "name": "Stockholm · Qatar Airways","flag": "🇸🇪", "carrier": "qatar", "overall": False},
 ]
 DESTINATION  = "DPS"
 DEST_NAME    = "Bali"
