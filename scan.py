@@ -17,7 +17,14 @@ Flags: --no-whatsapp | --render-only
 import os, sys, json, time, urllib.request, urllib.error
 from datetime import date, timedelta
 
-ORIGINS      = [("ARN", "Stockholm", "🇸🇪"), ("CPH", "Copenhagen", "🇩🇰")]
+# Each view is a panel on the dashboard. Views sharing an origin code reuse the
+# SAME Apify runs (no extra cost); `carrier` filters that origin's results to one
+# airline; `overall` marks which views count toward the "cheapest overall".
+VIEWS = [
+    {"code": "ARN", "name": "Stockholm",              "flag": "🇸🇪", "carrier": None,   "overall": True},
+    {"code": "CPH", "name": "Copenhagen",             "flag": "🇩🇰", "carrier": None,   "overall": True},
+    {"code": "ARN", "name": "Stockholm · Thai Airways","flag": "🇸🇪", "carrier": "thai", "overall": False},
+]
 DESTINATION  = "DPS"
 DEST_NAME    = "Bali"
 WINDOW_START = date(2026, 10, 1)
@@ -124,7 +131,7 @@ def _ymd(iso):
     return iso[0:10] if isinstance(iso, str) and len(iso) >= 10 else None
 
 
-def cheapest_from(items):
+def cheapest_from(items, carrier=None):
     cands = []
     for x in items:
         if not isinstance(x, dict):
@@ -137,6 +144,8 @@ def cheapest_from(items):
         if isinstance(st, int) and st > MAX_STOPS:
             continue
         if isinstance(dm, (int, float)) and dm > MAX_DURATION_MIN:  # skip 30h+ trips
+            continue
+        if carrier and carrier not in (x.get("airline", "") or "").lower():
             continue
         cands.append(x)
     if not cands:
@@ -168,25 +177,24 @@ def gflights_link(origin, dep_date):
 
 # ---- Scan (all origins x dates, bounded pool) -------------------------------
 def scan():
-    tasks = [(o, d.isoformat()) for o in ORIGINS for d in daterange()]  # (origin_tuple, ds)
-    print(f"Scanning {len(ORIGINS)} origins x {sum(1 for _ in daterange())} dates "
-          f"= {len(tasks)} runs (mem {RUN_MEM}MB, {CONCURRENCY} at a time)")
-    queue   = list(tasks)
-    active  = {}          # key -> {run_id, ds_id, origin, ds}
-    results = {}          # (origin_code, ds) -> cheapest dict or None
-
-    def key(o, ds):
-        return (o[0], ds)
+    run_codes = sorted({v["code"] for v in VIEWS})     # unique origins to actually query
+    dates = [d.isoformat() for d in daterange()]
+    tasks = [(code, ds) for code in run_codes for ds in dates]
+    print(f"Scanning {len(run_codes)} origins x {len(dates)} dates = {len(tasks)} runs "
+          f"({len(VIEWS)} views; mem {RUN_MEM}MB, {CONCURRENCY} at a time)")
+    queue  = list(tasks)
+    active = {}          # run_id -> {ds_id, code, ds}
+    raw    = {}          # (code, ds) -> list of items (or None)
 
     def fill():
         while queue and len(active) < CONCURRENCY:
-            o, ds = queue.pop(0)
+            code, ds = queue.pop(0)
             try:
-                rid, dsid = start_run(o[0], ds)
-                active[rid] = {"run_id": rid, "ds_id": dsid, "origin": o, "ds": ds}
+                rid, dsid = start_run(code, ds)
+                active[rid] = {"ds_id": dsid, "code": code, "ds": ds}
             except Exception as e:
-                results[key(o, ds)] = None
-                print(f"  FAILED start {o[0]} {ds}: {e}")
+                raw[(code, ds)] = None
+                print(f"  FAILED start {code} {ds}: {e}")
 
     fill()
     for _ in range(240):
@@ -199,44 +207,44 @@ def scan():
                 continue
             if st in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
                 r = active.pop(rid)
-                k = key(r["origin"], r["ds"])
+                k = (r["code"], r["ds"])
                 if st == "SUCCEEDED":
                     try:
-                        results[k] = cheapest_from(dataset_items(r["ds_id"]))
-                        p = results[k]["price"] if results[k] else None
-                        print(f"  {r['origin'][0]} {r['ds']}: {'$'+str(p) if p else 'no fares'}")
+                        raw[k] = dataset_items(r["ds_id"])
+                        c = cheapest_from(raw[k])
+                        print(f"  {r['code']} {r['ds']}: {'$'+str(c['price']) if c else 'no fares'}")
                     except Exception as e:
-                        results[k] = None
-                        print(f"  {r['origin'][0]} {r['ds']}: dataset error {e}")
+                        raw[k] = None
+                        print(f"  {r['code']} {r['ds']}: dataset error {e}")
                 else:
-                    results[k] = None
-                    print(f"  {r['origin'][0]} {r['ds']}: run {st}")
+                    raw[k] = None
+                    print(f"  {r['code']} {r['ds']}: run {st}")
         fill()
         if active or queue:
             time.sleep(5)
 
     routes = []
-    for o in ORIGINS:
-        code, name, flag = o
+    for v in VIEWS:
         rows = []
         for d in daterange():
             ds = d.isoformat()
-            best = results.get((code, ds))
+            items = raw.get((v["code"], ds))
+            best = cheapest_from(items, v["carrier"]) if items else None
             rows.append({"date": ds, "weekday": d.strftime("%a"),
-                         "link": gflights_link(code, ds),
+                         "link": gflights_link(v["code"], ds),
                          **(best or {"price": None})})
         priced = [r for r in rows if r.get("price") is not None]
         cheapest = min(priced, key=lambda r: r["price"]) if priced else None
-        routes.append({"origin": code, "origin_name": name, "flag": flag,
-                       "route": f"{code} → {DESTINATION}", "rows": rows,
-                       "cheapest": cheapest})
+        routes.append({"origin": v["code"], "origin_name": v["name"], "flag": v["flag"],
+                       "route": f"{v['code']} → {DESTINATION}", "rows": rows,
+                       "cheapest": cheapest, "overall": v["overall"]})
 
-    all_cheap = [r["cheapest"] for r in routes if r["cheapest"]]
+    all_cheap = [r["cheapest"] for r in routes if r["cheapest"] and r.get("overall")]
     overall = min(all_cheap, key=lambda c: c["price"]) if all_cheap else None
     overall_origin = None
     if overall:
         for r in routes:
-            if r["cheapest"] is overall:
+            if r.get("overall") and r["cheapest"] is overall:
                 overall_origin = r["origin_name"]
 
     out = {
