@@ -43,6 +43,7 @@ MAX_CHARGE   = "0.05"
 HERE        = os.path.dirname(os.path.abspath(__file__))
 RESULTS     = os.path.join(HERE, "results.json")
 STATE       = os.path.join(HERE, "state.json")
+SNAPSHOT    = os.path.join(HERE, "last_snapshot.json")  # last good data, shown if a scan comes back empty
 TRIGGER_URL = os.environ.get(
     "TRIGGER_URL",
     "https://github.com/gabrielmendoz/bali-flight-watch/actions/workflows/watch.yml")
@@ -326,6 +327,11 @@ def render_dashboard(out):
     else:
         best_line = "No fares returned this run."
 
+    paused = ""
+    if out.get("stale"):
+        paused = ('<div class="paused">⏸ <b>Live updates paused</b> — showing the last snapshot from '
+                  f'{out.get("stale_since","")}. Prices auto-resume when the Apify free credit resets (~Aug 26).</div>')
+
     refresh_script = (
         "<script>\n"
         "const TRIGGER_URL=" + json.dumps(TRIGGER_URL) + ";\n"
@@ -359,6 +365,9 @@ border:1px solid #2a2a2c;color:#fff;text-decoration:none;font-weight:600;font-fa
 padding:10px 18px;border-radius:999px;font-size:14px;background:#0d0d0f;cursor:pointer}}
 .refresh:hover{{background:#161618;border-color:#3a3a3c}}
 .refresh:disabled{{opacity:.6;cursor:default}}
+.paused{{background:#241a00;border:1px solid #7a5c00;color:#ffcf6b;border-radius:12px;
+padding:12px 16px;margin-bottom:24px;font-size:14px}}
+.paused b{{color:#ffdf9b}}
 .refresh .dot{{width:7px;height:7px;border-radius:50%;background:#00e0a4;box-shadow:0 0 8px #00e0a4}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:26px}}
 .panel{{min-width:0}}
@@ -394,6 +403,7 @@ padding:11px 20px;border-radius:999px;font-size:14px}}
 <h1>Stockholm & Copenhagen → Bali</h1>
 <div class="route">One-way · {out["window"]} · max 1 stop · scanned twice daily</div>
 <div class="bestbar">{best_line}</div>
+{paused}
 <button class="refresh" id="refreshBtn" onclick="doRefresh()">
 <span class="dot"></span><span id="refreshTxt">Refresh now — run a fresh check</span></button>
 <div class="grid">{panels}</div>
@@ -474,14 +484,38 @@ def send_whatsapp(out):
     return resp
 
 
-def run_once(send=True):
+def priced_count(out):
+    return sum(1 for rt in out.get("routes", []) for r in rt.get("rows", []) if r.get("price"))
+
+
+def scan_or_snapshot():
+    """Run a live scan. If it returns nothing (e.g. Apify credit maxed), fall back
+    to the last good snapshot with a 'paused' flag so the site never looks broken."""
     out = scan()
+    if priced_count(out) == 0 and os.path.exists(SNAPSHOT):
+        try:
+            snap = json.load(open(SNAPSHOT))
+            snap["stale"] = True
+            snap["stale_since"] = snap.get("scanned_at")
+            with open(RESULTS, "w") as f:      # publish the snapshot, not the empty result
+                json.dump(snap, f, indent=2)
+            print("Scan returned no fares — serving last snapshot (paused mode).")
+            return snap, True
+        except Exception as e:
+            print("snapshot fallback failed:", e)
+    return out, False
+
+
+def run_once(send=True):
+    out, stale = scan_or_snapshot()
     render_dashboard(out)
-    if send and FONNTE_TOKEN and OWNER_WHATSAPP:
+    if send and not stale and FONNTE_TOKEN and OWNER_WHATSAPP:
         try:
             send_whatsapp(out)
         except Exception as e:
             print("WhatsApp send failed:", e)
+    if stale:
+        print("Paused mode: skipped WhatsApp.")
     return out
 
 
@@ -492,9 +526,11 @@ if __name__ == "__main__":
         sys.exit(0)
     if not APIFY_TOKEN:
         sys.exit("APIFY_TOKEN not set")
-    out = scan()
+    out, stale = scan_or_snapshot()
     render_dashboard(out)
-    if "--no-whatsapp" in sys.argv:
+    if stale:
+        print("Paused mode (no live fares) — showing snapshot, skipped WhatsApp.")
+    elif "--no-whatsapp" in sys.argv:
         print("Skipping WhatsApp (--no-whatsapp).")
     else:
         if not (FONNTE_TOKEN and OWNER_WHATSAPP):
